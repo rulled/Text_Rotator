@@ -1,0 +1,33 @@
+        # Byte-compiled / optimized / DLL files
+        __pycache__/
+        *.pyc
+        *.pyo
+        *.pyd
+
+        # Environments
+        venv/
+        env/
+        .venv/
+        *.env
+
+        # PyInstaller
+        dist/
+        build/
+        *.spec
+
+        # IDE / Editor specific
+        .vscode/
+        .idea/
+        *.suo
+        *.ntvs*
+        *.njsproj
+        *.sln
+        *.sw?
+
+        # OS generated files
+        .DS_Store
+        Thumbs.db
+
+        # Configuration file (Uncomment if it contains sensitive data,
+        # otherwise tracking user preferences might be okay)
+        # text_rotator_config.json
