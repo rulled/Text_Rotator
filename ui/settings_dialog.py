@@ -276,3 +276,8 @@ class SettingsDialog(QDialog):
     def enable_update_button(self):
          self.update_button.setEnabled(True)
          self.update_button.setText("Проверить обновления") 
+         
+    # --- Method to disable the button during update check ---
+    def disable_update_button(self):
+         self.update_button.setEnabled(False)
+         self.update_button.setText("Проверка...") 
