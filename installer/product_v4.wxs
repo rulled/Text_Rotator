@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Text Rotator" Language="1049" Version="1.0.3" Manufacturer="rulled" UpgradeCode="FDBB2D7C-1751-451F-92FA-60D741F075E8"
+           InstallerVersion="500" Compressed="yes" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Text Rotator is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Icon Id="AppIcon" SourceFile="..\assets\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    
+    <Feature Id="ProductFeature" Title="Text Rotator" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="ApplicationShortcut" />
+      <ComponentRef Id="ApplicationShortcutDesktop" />
+      <ComponentRef Id="RegistryEntries" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="TextRotator" />
+    </StandardDirectory>
+    
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Text Rotator" />
+    </StandardDirectory>
+    
+    <StandardDirectory Id="DesktopFolder" />
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="ProductComponent" Guid="*">
+        <File Id="TextRotatorEXE" Source="..\dist\TextRotator.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="AppIconFile" Guid="*">
+        <File Id="AppIconFile" Source="..\assets\app.ico" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+    
+    <Component Id="ApplicationShortcut" Guid="*" Directory="ApplicationProgramsFolder">
+      <Shortcut Id="ApplicationStartMenuShortcut" 
+                Name="Text Rotator" 
+                Description="Text Rotator - обработчик и конвертер текста"
+                Target="[INSTALLFOLDER]TextRotator.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\rulled\Text Rotator" 
+                     Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    
+    <Component Id="ApplicationShortcutDesktop" Guid="*" Directory="DesktopFolder">
+      <Shortcut Id="ApplicationDesktopShortcut" 
+                Name="Text Rotator" 
+                Description="Text Rotator - обработчик и конвертер текста"
+                Target="[INSTALLFOLDER]TextRotator.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RegistryValue Root="HKCU" Key="Software\rulled\Text Rotator" 
+                     Name="desktop_shortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    
+    <Component Id="RegistryEntries" Guid="*" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKLM" Key="Software\rulled\Text Rotator"
+                     Type="string" Name="InstallDir" Value="[INSTALLFOLDER]" KeyPath="yes" />
+      <RegistryValue Root="HKLM" Key="Software\rulled\Text Rotator"
+                     Type="string" Name="Version" Value="1.0.3" />
+    </Component>
+  </Package>
+</Wix>
+
+
+
+
+
+

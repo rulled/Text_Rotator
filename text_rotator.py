@@ -4,7 +4,7 @@ import os
 import time
 import copy
 
-__version__ = "1.0.1"
+__version__ = "1.0.3"
 
 # Standard library imports for updates
 import urllib.request
@@ -34,11 +34,12 @@ from ui.folder_edit_dialog import FolderEditDialog
 from ui.hotkey_recorder_dialog import HotkeyRecorderDialog
 from ui.settings_dialog import SettingsDialog # Import the new dialog
 from utils.resource_path import resource_path
+from utils.updater import Updater
 
 # --- GitHub Update Configuration ---
 GITHUB_API_URL = "https://api.github.com/repos/rulled/Text_Rotator/releases/latest"
 UPDATE_ASSET_NAME = "TextRotator.exe" # The EXACT name of the .exe file attached to your release
-UPDATER_SCRIPT_NAME = "updater.bat"
+MSI_ASSET_NAME = "TextRotator-Setup.msi" # Имя MSI файла установщика, прикрепленного к релизу
 # ---------------------------------
 
 def is_system_dark_theme():
@@ -681,58 +682,54 @@ class ModeLabel(QLabel):
 class UpdateDownloadThread(QThread):
     """Thread for downloading updates in the background."""
     progress_signal = pyqtSignal(int)
-    finished_signal = pyqtSignal(bool, str, str)  # success, message, file_path
+    finished_signal = pyqtSignal(dict)
     
-    def __init__(self, download_url, filename):
+    def __init__(self, updater, download_url):
         super().__init__()
+        self.updater = updater
         self.download_url = download_url
-        self.filename = filename
         self.canceled = False
     
     def run(self):
-        """Downloads the file and emits progress/completion signals."""
+        """Загружает обновление, используя класс Updater."""
         try:
-            # Create temp directory for the download
-            temp_dir = tempfile.gettempdir()
-            temp_file_path = os.path.join(temp_dir, self.filename)
+            # Создаем callback с возможностью отмены
+            def progress_callback(progress):
+                self.progress_signal.emit(progress)
+                return self.canceled
             
-            # Open URL and get file size
-            response = urllib.request.urlopen(self.download_url)
-            file_size = int(response.info().get('Content-Length', 0))
+            # Добавляем атрибут для проверки отмены в методе download_update
+            progress_callback.cancelled = False
             
-            # Download with progress updates
-            downloaded_size = 0
-            block_size = 8192
+            # Используем метод загрузки из класса Updater
+            result = self.updater.download_update(
+                self.download_url, 
+                progress_callback
+            )
             
-            # Open output file
-            with open(temp_file_path, 'wb') as outfile:
-                while True:
-                    if self.canceled:
-                        raise Exception("Download canceled by user")
-                    
-                    buffer = response.read(block_size)
-                    if not buffer:
-                        break
-                    
-                    outfile.write(buffer)
-                    downloaded_size += len(buffer)
-                    
-                    # Update progress percentage
-                    if file_size > 0:
-                        progress = int((downloaded_size / file_size) * 100)
-                        self.progress_signal.emit(progress)
-            
-            # Signal successful completion
-            self.progress_signal.emit(100)
-            self.finished_signal.emit(True, "Update downloaded successfully", temp_file_path)
-            
+            if self.canceled:
+                # Очищаем временные файлы при отмене
+                self.updater.cleanup_temp_files()
+                self.finished_signal.emit({"success": False, "error": "Загрузка отменена пользователем"})
+                return
+                
+            self.finished_signal.emit(result)
         except Exception as e:
-            print(f"Download error: {e}")
-            self.finished_signal.emit(False, f"Ошибка загрузки обновления: {e}", "")
+            # Очищаем временные файлы при ошибке
+            try:
+                self.updater.cleanup_temp_files()
+            except Exception:
+                pass
+            self.finished_signal.emit({"success": False, "error": str(e)})
     
     def cancel_download(self):
-        """Cancels the download operation."""
+        """Отменяет операцию загрузки."""
         self.canceled = True
+        # Устанавливаем флаг отмены для callback
+        try:
+            progress_callback.cancelled = True
+        except Exception:
+            pass
 
 class TextRotator(ResizableFramelessWindow):
     def __init__(self):
@@ -1227,45 +1224,21 @@ class TextRotator(ResizableFramelessWindow):
                 flat_list.extend(self._flatten_data(item.get('items', [])))
         return flat_list
 
-    def force_close_all_popups(self):
-        """Принудительно закрывает все найденные окна типа TextSelectionPopup"""
-        print("Принудительное закрытие всех popup окон")
-        # Получаем все окна верхнего уровня
-        for widget in QtWidgets.QApplication.topLevelWidgets():
-            # Проверяем, является ли окно экземпляром TextSelectionPopup
-            if isinstance(widget, TextSelectionPopup):
-                try:
-                    print(f"Закрытие popup: {widget}")
-                    widget.close()
-                    widget.setParent(None)
-                    widget.deleteLater()
-                except Exception as e:
-                    print(f"Ошибка при закрытии popup: {e}")
-    
     def recreate_popup(self, data):
         """Пересоздает окно выбора текста для обеспечения корректной работы"""
-        # Сначала принудительно закрываем все возможные popup окна
-        self.force_close_all_popups()
-        
-        # Затем удаляем наш существующий экземпляр, если он есть
         if self.popup:
             # Удаляем старый экземпляр
             try:
-                self.popup.close()  # Сначала закрываем
+                self.popup.hide()  # Сначала скрываем
                 self.popup.setParent(None)  # Отсоединяем от родительского окна
                 self.popup.deleteLater()  # Планируем уничтожение
             except Exception as e:
                 print(f"Ошибка при уничтожении popup: {e}")
-                
+            
         # Создаем новый экземпляр
         callback = partial(self.paste_selected_text_from_flat_list, data)
         self.popup = TextSelectionPopup(data, callback, parent=self)
-        self.popup.destroyed.connect(self.on_popup_destroyed)
         return self.popup
-
-    def on_popup_destroyed(self, *args):
-        print("Popup destroyed, clearing reference.")
-        self.popup = None
 
     def rotate_text(self):
         """Handles hotkey press: either rotates text or shows popup based on mode."""
@@ -1276,33 +1249,19 @@ class TextRotator(ResizableFramelessWindow):
             current_profile_data = self.data_popup # Get data for popup profile
             print(f"Popup profile data: {current_profile_data}") # Лог данных профиля
             if not current_profile_data:
-                print("Профиль окна выбора пуст, попап не показан.")
-                return
+                 print("Профиль окна выбора пуст, попап не показан.")
+                 return
 
             print("Preparing to show popup...") # Лог перед показом
-            # Перед каждым показом закрываем все существующие popup и пересоздаём экземпляр
-            self.force_close_all_popups()
+            
+            # Всегда пересоздаем окно для надежности
             popup = self.recreate_popup(current_profile_data)
             
-            # Добавляем небольшую задержку перед показом
-            time.sleep(0.05)
-            QtWidgets.QApplication.processEvents()
-            
-            # Активируем родительское окно (само приложение) для чистоты контекста
-            self.activateWindow()
-            self.raise_()
-            QtWidgets.QApplication.processEvents()
-            
             print("Calling show_at_cursor()...") # Лог перед вызовом
-            # Вызываем в порядке: сначала фокус, потом показ
-            popup.raise_()
-            popup.activateWindow()
-            popup.show_at_cursor()
+            popup.show_at_cursor() # show_at_cursor now includes raise_() and activateWindow()
             print("Called show_at_cursor() on popup.") # Лог вызова показа
             
-            # Обрабатываем события и дополнительно активируем после небольшой задержки
-            QtWidgets.QApplication.processEvents()
-            time.sleep(0.05)
+            # Добавляем дополнительную активацию окна
             popup.activateWindow()
             popup.raise_()
             QtWidgets.QApplication.processEvents()
@@ -1795,226 +1754,163 @@ class TextRotator(ResizableFramelessWindow):
         else:
             print(f"Warning: Invalid theme mode provided: {mode}")
 
-    def check_for_updates(self):
-        """Checks for application updates on GitHub and handles the update process."""
+    def check_for_updates(self, silent=False):
+        """
+        Проверяет наличие обновлений на GitHub (или сервере), скачивает .msi если есть, и запускает установку.
+        Показывает релиз-ноты и прогресс загрузки. После скачивания .msi предлагает закрыть программу и установить обновление.
+        """
+        updater = Updater(
+            current_version=__version__,
+            github_api_url=GITHUB_API_URL,
+            asset_name=MSI_ASSET_NAME  # теперь ищем MSI
+        )
         try:
-            # Disable the update button in the settings dialog if it exists
-            if self.settings_dialog and hasattr(self.settings_dialog, 'disable_update_button'):
-                self.settings_dialog.disable_update_button()
-            
-            self.status_label.setText("Проверка обновлений...")
-            print(f"Checking for updates... Current version: {__version__}")
-            
-            # Check if we have an internet connection
-            try:
-                urllib.request.urlopen("https://api.github.com", timeout=5)
-            except:
-                QMessageBox.warning(self, "Ошибка", "Не удалось подключиться к серверу. Проверьте интернет-соединение.")
+            update_info = updater.check_for_updates()
+            if not update_info["available"]:
+                is_msi, install_location = updater.check_msi_installation()
+                if not silent:
+                    QMessageBox.information(self, "Обновлений нет", "У вас последняя версия.")
                 return
-            
-            # Fetch the latest release info from GitHub
-            try:
-                with urllib.request.urlopen(GITHUB_API_URL) as response:
-                    release_data = json.loads(response.read().decode())
-            except Exception as e:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось получить информацию о последней версии: {e}")
+            new_version = update_info["version"]
+            download_url = update_info["download_url"]
+            release_notes = update_info.get("release_notes", "")
+            is_msi, install_location = updater.check_msi_installation()
+            message = f"Доступна новая версия: {new_version}\n\nТекущая версия: {__version__}\n\nЧто нового:\n{release_notes}\n\n"
+            if is_msi:
+                message += "Ваше приложение установлено через установщик. Рекомендуется скачать новый установщик.\n\nХотите скачать новый установщик?"
+                reply = QMessageBox.question(
+                    self,
+                    "Доступно обновление",
+                    message,
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                if reply == QMessageBox.Yes:
+                    import webbrowser
+                    webbrowser.open(f"https://github.com/rulled/Text_Rotator/releases/tag/v{new_version}")
                 return
-            
-            # Extract the latest version tag (e.g., "v1.0.0" -> "1.0.0")
-            latest_version_tag = release_data.get('tag_name', '').lstrip('v')
-            if not latest_version_tag:
-                QMessageBox.warning(self, "Ошибка", "Не удалось определить версию последнего релиза.")
-                return
-            
-            # Compare versions
-            current_version = __version__
-            print(f"Current version: {current_version}, Latest version: {latest_version_tag}")
-            
-            try:
-                if version.parse(latest_version_tag) <= version.parse(current_version):
-                    QMessageBox.information(self, "Обновление", "У вас установлена последняя версия программы.")
-                    self.status_label.setText("У вас последняя версия")
+            else:
+                message += "Хотите обновить приложение сейчас?"
+                reply = QMessageBox.question(
+                    self,
+                    "Доступно обновление",
+                    message,
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                if reply == QMessageBox.No:
                     return
-            except Exception as e:
-                QMessageBox.warning(self, "Ошибка", f"Ошибка при сравнении версий: {e}")
-                return
-            
-            # Ask user if they want to update
-            reply = QMessageBox.question(
-                self, 
-                "Доступно обновление",
-                f"Доступна новая версия {latest_version_tag}.\n\nТекущая версия: {current_version}\n\nХотите установить обновление?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-            
-            if reply == QMessageBox.No:
-                self.status_label.setText("Обновление отменено")
-                return
-            
-            # Find the update asset URL
-            asset_url = None
-            for asset in release_data.get('assets', []):
-                if asset.get('name') == UPDATE_ASSET_NAME:
-                    asset_url = asset.get('browser_download_url')
-                    break
-            
-            if not asset_url:
-                QMessageBox.warning(
-                    self, 
-                    "Ошибка", 
-                    f"Не удалось найти файл {UPDATE_ASSET_NAME} в релизе."
+                progress_dialog = QProgressDialog("Загрузка обновления...", "Отмена", 0, 100, self)
+                progress_dialog.setWindowTitle("Обновление")
+                progress_dialog.setAutoClose(False)
+                progress_dialog.setMinimumDuration(0)
+                progress_dialog.setValue(0)
+                progress_dialog.show()
+                def update_progress(progress):
+                    progress_dialog.setValue(progress)
+                    if progress_dialog.wasCanceled():
+                        download_thread.cancel_download()
+                download_thread = UpdateDownloadThread(updater, download_url)
+                download_thread.progress_signal.connect(update_progress)
+                download_thread.finished_signal.connect(
+                    lambda result: self.handle_update_download(result, new_version, progress_dialog, updater)
                 )
-                return
-            
-            # Create a progress dialog
-            progress_dialog = QtWidgets.QProgressDialog("Загрузка обновления...", "Отмена", 0, 100, self)
-            progress_dialog.setWindowTitle("Обновление")
-            progress_dialog.setWindowModality(Qt.WindowModal)
-            progress_dialog.setMinimumDuration(0)
-            
-            # Start the update process in a separate thread
-            self.update_thread = UpdateDownloadThread(asset_url, UPDATE_ASSET_NAME)
-            self.update_thread.progress_signal.connect(progress_dialog.setValue)
-            self.update_thread.finished_signal.connect(
-                lambda success, message, file_path: self.handle_update_download(
-                    success, message, file_path, latest_version_tag, progress_dialog
-                )
-            )
-            
-            # Connect cancel button of progress dialog to thread
-            progress_dialog.canceled.connect(self.update_thread.cancel_download)
-            
-            self.update_thread.start()
-            progress_dialog.show()
-            
+                progress_dialog.canceled.connect(download_thread.cancel_download)
+                download_thread.start()
+                progress_dialog.exec_()
         except Exception as e:
-            QMessageBox.warning(self, "Ошибка", f"Произошла ошибка при проверке обновлений: {e}")
+            if not silent:
+                QMessageBox.critical(self, "Ошибка обновления", f"Произошла ошибка при проверке обновлений: {str(e)}")
             print(f"Update check error: {e}")
-            self.status_label.setText("Ошибка проверки обновлений")
+            if hasattr(self, 'status_label'):
+                self.status_label.setText("Ошибка проверки обновлений")
         finally:
-            # Re-enable the update button in settings dialog
             if self.settings_dialog and hasattr(self.settings_dialog, 'enable_update_button'):
                 QtCore.QTimer.singleShot(0, self.settings_dialog.enable_update_button)
-    
-    def handle_update_download(self, success, message, file_path, version_tag, progress_dialog):
-        """Handles the completion of the update download and creates the updater script."""
-        progress_dialog.close()
-        
-        if not success:
-            QMessageBox.warning(self, "Ошибка загрузки", message)
-            self.status_label.setText("Ошибка загрузки обновления")
-            return
-        
+
+    def handle_update_download(self, result, version_tag, progress_dialog, updater):
+        """Handles the completion of the update download."""
         try:
-            # Get the path of the current executable
-            current_exe_path = os.path.abspath(sys.argv[0])
-            if current_exe_path.endswith('.py'):
-                # If running from source (.py file), don't proceed with replacement update
-                QMessageBox.information(
-                    self,
-                    "Обновление",
-                    f"Обновление загружено в {file_path}, но автоматическая установка невозможна при запуске из исходного кода.\n\n"
-                    f"Пожалуйста, замените файл вручную или используйте скомпилированную версию для автоматических обновлений."
-                )
-                self.status_label.setText("Обновление загружено")
+            progress_dialog.close()
+            if not result["success"]:
+                error_message = result.get('error', 'Неизвестная ошибка')
+                QMessageBox.critical(self, "Ошибка загрузки", f"Ошибка загрузки: {error_message}")
+                try:
+                    updater.cleanup_temp_files()
+                except Exception as e:
+                    print(f"Ошибка при очистке временных файлов: {e}")
+                
                 return
             
-            # Create the updater script
-            updater_path = self.create_updater_script(current_exe_path, file_path)
+            # Получаем пути к файлам
+            current_exe_path = sys.executable
+            update_file_path = result["file_path"]
             
-            if not updater_path:
-                QMessageBox.warning(
+            # Проверяем существование файла обновления
+            if not os.path.exists(update_file_path):
+                QMessageBox.critical(
                     self, 
                     "Ошибка обновления", 
-                    "Не удалось создать скрипт обновления."
+                    f"Файл обновления не найден: {update_file_path}"
                 )
-                self.status_label.setText("Ошибка создания скрипта обновления")
                 return
             
-            # Confirm the update process
-            reply = QMessageBox.information(
-                self,
-                "Готово к установке",
-                f"Обновление до версии {version_tag} загружено и готово к установке.\n\n"
-                "Программа будет закрыта для завершения установки.\n\n"
-                "Установить сейчас?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
+            # Запускаем процесс установки обновления
+            install_result = updater.install_update(current_exe_path, update_file_path)
+            
+            if not install_result["success"]:
+                error_message = install_result.get('error', 'Неизвестная ошибка')
+                QMessageBox.critical(
+                    self, 
+                    "Ошибка установки", 
+                    f"Не удалось установить обновление: {error_message}"
+                )
+                
+                # Очищаем временные файлы в случае ошибки
+                try:
+                    updater.cleanup_temp_files()
+                except Exception as e:
+                    print(f"Ошибка при очистке временных файлов: {e}")
+            else:
+                QMessageBox.information(
+                    self, 
+                    "Обновление успешно", 
+                    f"Приложение будет перезапущено для завершения обновления до версии {version_tag}."
+                )
+                # Закрываем приложение для обновления
+                self.close_app()
+        except Exception as e:
+            # Обрабатываем любые непредвиденные ошибки
+            print(f"Критическая ошибка при обработке загрузки обновления: {e}")
+            
+            QMessageBox.critical(
+                self, 
+                "Ошибка обновления", 
+                f"Произошла непредвиденная ошибка при обновлении: {str(e)}"
             )
             
-            if reply == QMessageBox.Yes:
-                # Run the updater and exit
-                print(f"Launching updater: {updater_path}")
-                subprocess.Popen([updater_path], shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
-                QtWidgets.QApplication.quit()
-            else:
-                self.status_label.setText("Обновление готово к установке")
-        
-        except Exception as e:
-            QMessageBox.warning(self, "Ошибка", f"Произошла ошибка при подготовке установки: {e}")
-            self.status_label.setText("Ошибка подготовки обновления")
+            # Пытаемся очистить временные файлы
+            try:
+                updater.cleanup_temp_files()
+            except Exception:
+                pass
 
-    def create_updater_script(self, current_exe_path, update_file_path):
-        """Creates a batch script to replace the current exe with the updated version."""
+    def setup_auto_start(self, enable=True):
+        """Настраивает автозапуск приложения при старте Windows."""
         try:
-            # Create a temp batch file
-            updater_path = os.path.join(tempfile.gettempdir(), UPDATER_SCRIPT_NAME)
+            updater = Updater(current_version=__version__, github_api_url=GITHUB_API_URL)
+            app_path = sys.executable
             
-            # Get the current process ID
-            pid = os.getpid()
+            if enable:
+                success = updater.add_to_startup(app_path)
+                message = "Приложение добавлено в автозапуск." if success else "Не удалось добавить приложение в автозапуск."
+            else:
+                success = updater.remove_from_startup()
+                message = "Приложение удалено из автозапуска." if success else "Не удалось удалить приложение из автозапуск." 
             
-            # Get directory of the current exe
-            exe_dir = os.path.dirname(current_exe_path)
-            exe_filename = os.path.basename(current_exe_path)
-            
-            # Create bat script that:
-            # 1. Waits for the process to end
-            # 2. Copies the new file over the old one
-            # 3. Starts the new version
-            # 4. Deletes itself
-            
-            with open(updater_path, 'w') as f:
-                f.write('@echo off\n')
-                f.write('echo Updating Text Rotator, please wait...\n')
-                f.write('ping 127.0.0.1 -n 2 > nul\n')  # Wait briefly
-                
-                # Wait for the process to end
-                f.write(f'echo Waiting for Text Rotator to close (PID: {pid})...\n')
-                f.write(':wait_loop\n')
-                f.write(f'tasklist | find "{pid}" > nul\n')
-                f.write('if not errorlevel 1 (\n')
-                f.write('    ping 127.0.0.1 -n 2 > nul\n')
-                f.write('    goto wait_loop\n')
-                f.write(')\n\n')
-                
-                # Additional wait to ensure file is released
-                f.write('ping 127.0.0.1 -n 3 > nul\n')
-                
-                # Try to delete the old exe (if it exists)
-                f.write(f'echo Replacing application files...\n')
-                f.write(f'if exist "{exe_dir}\\{exe_filename}" (\n')
-                f.write(f'    del /F /Q "{exe_dir}\\{exe_filename}"\n')
-                f.write(')\n\n')
-                
-                # Copy the new exe over
-                f.write(f'copy /Y "{update_file_path}" "{exe_dir}\\{exe_filename}"\n\n')
-                
-                # Start the new version
-                f.write('echo Starting updated version...\n')
-                f.write(f'start "" "{exe_dir}\\{exe_filename}"\n\n')
-                
-                # Delete the updater and the downloaded file
-                f.write('echo Cleaning up...\n')
-                f.write(f'del /F /Q "{update_file_path}"\n')
-                f.write('ping 127.0.0.1 -n 3 > nul\n')
-                f.write('del "%~f0"\n')
-            
-            return updater_path
-            
+            return success, message
         except Exception as e:
-            print(f"Error creating updater script: {e}")
-            return None
+            return False, f"Ошибка настройки автозапуска: {str(e)}"
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
