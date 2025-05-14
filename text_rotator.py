@@ -3,8 +3,9 @@ import json
 import os
 import time
 import copy
+import winreg # Added for setup_auto_start
 
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 
 # Standard library imports for updates
 import urllib.request
@@ -948,16 +949,66 @@ class TextRotator(ResizableFramelessWindow):
                 }
             """)
 
-        # Если есть кастомный заголовок, обновляем его тему
-        if hasattr(self, 'title_bar'):
+        # Update specific widget styles that depend on the theme
+        if hasattr(self, 'main_list_widget') and self.main_list_widget:
+            self.main_list_widget.setStyleSheet(self._get_main_list_scrollbar_stylesheet())
+
+        if hasattr(self, 'mode_toggle') and self.mode_toggle:
+            track_color = "#E4E4E4" if not self.is_dark_theme else "#3C3C3C"
+            active_color = "#34C759" # Stays green
+            self.mode_toggle.track_color = track_color
+            self.mode_toggle.track_active_color = active_color # Ensure active color is also set
+            self.mode_toggle.update() # Redraw the toggle
+            self.update_mode_labels() # Ensure labels reflect current state and theme
+
+        if hasattr(self, 'title_bar') and self.title_bar:
             self.title_bar.update_theme(self.is_dark_theme)
-            
-        # Update button icons after theme change
-        self.update_button_icons()
         
-        # If settings dialog exists, update its style too
-        if self.settings_dialog:
-             self.settings_dialog.apply_parent_style()
+        self.update_button_icons() # Update icons on all relevant buttons
+
+    def _get_main_list_scrollbar_stylesheet(self):
+        if self.is_dark_theme:
+            handle_bg = "#555555"
+            handle_hover_bg = "#666666"
+        else:
+            handle_bg = "#CCCCCC"
+            handle_hover_bg = "#BBBBBB"
+        
+        return f"""
+            QListWidget {{
+                /* Keep existing QListWidget styles from main theme if any, or add defaults */
+                border: 1px solid {'#3C3C3C' if self.is_dark_theme else '#C9C9C9'};
+                border-radius: 5px;
+                font-family: 'Inter';
+                font-size: 16px;
+                font-weight: 400;
+                background-color: {'#2D2D2D' if self.is_dark_theme else '#FFFFFF'};
+                color: {'#FFFFFF' if self.is_dark_theme else '#000000'};
+            }}
+            QListWidget::item:selected {{
+                background-color: {'#3C3C3C' if self.is_dark_theme else '#AAD3FE'};
+            }}
+
+            QScrollBar:vertical {{
+                 border: none;
+                 background: transparent; 
+                 width: 8px;
+                 margin: 1px 1px 1px 1px; /* Small margin to prevent overlap with border */
+             }}
+             QScrollBar::handle:vertical {{
+                 background: {handle_bg};
+                 min-height: 25px;
+                 border-radius: 4px;
+             }}
+             QScrollBar::handle:vertical:hover {{
+                 background: {handle_hover_bg};
+             }}
+             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+             QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                 border: none; background: none; height: 0px; width: 0px;
+             }}
+        """
 
     def init_ui(self):
         self.setWindowTitle('Text Rotator')
@@ -1043,9 +1094,11 @@ class TextRotator(ResizableFramelessWindow):
         self.main_list_widget = QListWidget() # Переименовали
         self.main_list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
         self.main_list_widget.itemDoubleClicked.connect(self.edit_selected_item)
+        # Apply custom scrollbar style
+        self.main_list_widget.setStyleSheet(self._get_main_list_scrollbar_stylesheet())
         self.update_main_list_widget()
         content_layout.addWidget(self.main_list_widget)
-        
+
         # Кнопки управления списком
         list_buttons_layout = QHBoxLayout()
         
@@ -1057,10 +1110,10 @@ class TextRotator(ResizableFramelessWindow):
         move_down_icon = self.get_themed_icon("move_down.svg")
         
         # Кнопки слева
-        add_text_button = QPushButton()
-        add_text_button.setIcon(add_icon)
-        add_text_button.setToolTip("Добавить текст в активный профиль")
-        add_text_button.clicked.connect(self.add_root_text)
+        self.add_text_button = QPushButton() # Make it an instance attribute
+        self.add_text_button.setIcon(add_icon)
+        self.add_text_button.setToolTip("Добавить текст в активный профиль")
+        self.add_text_button.clicked.connect(self.add_root_text)
         
         delete_button = QPushButton()
         delete_button.setIcon(delete_icon)
@@ -1072,8 +1125,6 @@ class TextRotator(ResizableFramelessWindow):
         self.add_folder_button.setIcon(folder_icon)
         self.add_folder_button.setToolTip("Добавить папку (только в режиме окна выбора)")
         self.add_folder_button.clicked.connect(self.add_root_folder)
-        # --- Start disabled by default ---
-        self.add_folder_button.setEnabled(False) 
         
         # Кнопки справа
         move_up_button = QPushButton()
@@ -1088,9 +1139,9 @@ class TextRotator(ResizableFramelessWindow):
         
         # Добавляем кнопки в макет
         # Слева: создать, удалить, папка
-        list_buttons_layout.addWidget(add_text_button)
-        list_buttons_layout.addWidget(delete_button)
-        list_buttons_layout.addWidget(self.add_folder_button)
+        list_buttons_layout.addWidget(self.add_text_button)
+        list_buttons_layout.addWidget(self.add_folder_button) # Moved up
+        list_buttons_layout.addWidget(delete_button)           # Moved down
         list_buttons_layout.addStretch() # Растягивающийся промежуток между группами кнопок
         # Справа: вверх, вниз, настройки
         list_buttons_layout.addWidget(move_up_button)
@@ -1099,12 +1150,12 @@ class TextRotator(ResizableFramelessWindow):
         
         content_layout.addLayout(list_buttons_layout)
         
-        # --- Explicitly enable ONLY if use_popup is True after load_config ---
-        if self.use_popup:
-            self.add_folder_button.setEnabled(True)
-            print("Init UI: Add Folder button enabled because use_popup is True.")
-        else:
-             print("Init UI: Add Folder button remains disabled because use_popup is False.")
+        # Set initial visibility based on self.use_popup
+        self.add_text_button.setVisible(not self.use_popup)
+        self.add_folder_button.setVisible(self.use_popup) 
+        self.add_folder_button.setEnabled(self.use_popup) # Ensure it's enabled if visible
+        print(f"Init UI: Add Text button visibility set to {not self.use_popup}.")
+        print(f"Init UI: Add Folder button visibility set to {self.use_popup}, enabled: {self.use_popup}.")
 
         # Кнопка запуска/остановки
         self.start_stop_button = QPushButton("Запустить")
@@ -1164,8 +1215,10 @@ class TextRotator(ResizableFramelessWindow):
         # Обновляем метки с анимацией
         self.update_mode_labels()
         
-        # Enable/Disable the "Add Folder" button based on the mode
-        self.add_folder_button.setEnabled(self.use_popup) 
+        # Update button visibility based on the new mode
+        self.add_text_button.setVisible(not self.use_popup)
+        self.add_folder_button.setVisible(self.use_popup) 
+        self.add_folder_button.setEnabled(self.use_popup) # Ensure it's enabled if visible
         
         # Update the list widget to show the data for the new profile
         self.update_main_list_widget() 
@@ -1384,7 +1437,7 @@ class TextRotator(ResizableFramelessWindow):
         self.current_rotation_index = 0
 
     def save_config(self):
-        """Saves configuration including both profiles and theme mode."""
+        """Saves configuration, including both profiles and theme mode."""
         # No need to update flat_texts_for_rotation here
         try:
             config = {
@@ -1511,16 +1564,40 @@ class TextRotator(ResizableFramelessWindow):
             QMessageBox.warning(self, "Предупреждение", "Текст не может быть пустым!")
 
     def add_root_folder(self):
-        """Добавляет новую папку в корень АКТИВНОГО профиля."""
+        """Добавляет новую папку в корень АКТИВНОГО профиля, предлагая уникальное имя по умолчанию."""
+        base_default_name = "Новая папка"
+        
+        current_data = self.get_current_data()
+        existing_folder_names = set()
+        for item in current_data:
+            if isinstance(item, dict) and item.get('type') == 'folder' and 'name' in item:
+                existing_folder_names.add(item['name'])
+
+        suggested_name = base_default_name
+        counter = 1
+        # Check if the base name or subsequent "(N)" versions exist
+        while suggested_name in existing_folder_names:
+            suggested_name = f"{base_default_name} ({counter})"
+            counter += 1
+        
         folder_name, ok = QInputDialog.getText(
-            self, "Добавление папки", "Введите имя новой папки для активного профиля:", QLineEdit.Normal, "Новая папка"
+            self, 
+            "Добавление папки", 
+            "Введите имя новой папки для активного профиля:", 
+            QLineEdit.Normal, 
+            suggested_name  # Use the uniquely generated name as the default
         )
+        
         if ok and folder_name.strip():
-            # Optional: Check for unique name within the current profile
-            # ...
+            final_folder_name = folder_name.strip()
+            # Note: This change only affects the *suggested* default name.
+            # If the user manually types a name that is already in existing_folder_names,
+            # this current logic will still allow creating it (leading to duplicates if user isn't careful).
+            # Addressing that would be a separate enhancement (e.g., warning or further auto-incrementing final_folder_name).
+
             new_folder = {
                 "type": "folder",
-                "name": folder_name.strip(),
+                "name": final_folder_name, # Use the name from the dialog
                 "items": []
             }
             # Add to the currently active data list
@@ -1636,8 +1713,17 @@ class TextRotator(ResizableFramelessWindow):
                  pass 
                  
     def tray_icon_activated(self, reason):
-        if reason == QSystemTrayIcon.DoubleClick:
-            self.show()
+        # Восстанавливаем окно при двойном клике или простом клике (Trigger)
+        if reason == QSystemTrayIcon.DoubleClick or reason == QSystemTrayIcon.Trigger:
+            # Если окно свернуто или скрыто, показываем его
+            if self.isMinimized() or not self.isVisible():
+                self.showNormal() # Восстанавливает из свернутого и показывает, если было скрыто
+                self.activateWindow() # Делает окно активным
+                self.raise_()         # Поднимает окно поверх других окон приложения
+            # Если окно уже видимо, но неактивно, активируем его
+            elif not self.isActiveWindow():
+                self.activateWindow()
+                self.raise_()
     
     def close_app(self):
         try:
@@ -1896,21 +1982,44 @@ class TextRotator(ResizableFramelessWindow):
                 pass
 
     def setup_auto_start(self, enable=True):
-        """Настраивает автозапуск приложения при старте Windows."""
+        """Настраивает автозапуск приложения."""
+        app_name = "TextRotator"
         try:
-            updater = Updater(current_version=__version__, github_api_url=GITHUB_API_URL)
-            app_path = sys.executable
+            if getattr(sys, 'frozen', False):
+                app_path = sys.executable
+            else:
+                # Для .py файлов автозапуск через реестр напрямую может быть не лучшим решением.
+                # Обычно создают .bat или ярлык, или используют планировщик задач.
+                # Эта функция больше ориентирована на .exe
+                # Попытка создать путь для pythonw.exe + script
+                script_path = os.path.abspath(sys.argv[0])
+                python_exe_path = sys.executable.replace("python.exe", "pythonw.exe") # Используем pythonw для скрытия консоли
+                app_path = f'"{python_exe_path}" "{script_path}"'
+                print(f"[INFO] Пытаемся настроить автозапуск для скрипта: {app_path}")
+                # QMessageBox.information(self, "Автозапуск",
+                #                         "Автозапуск для .py скриптов может потребовать ручной настройки или планировщика задач для надежности.")
+                # return
+
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS)
             
             if enable:
-                success = updater.add_to_startup(app_path)
-                message = "Приложение добавлено в автозапуск." if success else "Не удалось добавить приложение в автозапуск."
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, app_path)
+                print(f"Автозапуск для '{app_name}' включен: {app_path}")
             else:
-                success = updater.remove_from_startup()
-                message = "Приложение удалено из автозапуска." if success else "Не удалось удалить приложение из автозапуск." 
-            
-            return success, message
+                try:
+                    winreg.DeleteValue(key, app_name)
+                    print(f"Автозапуск для '{app_name}' отключен.")
+                except FileNotFoundError:
+                    print(f"Запись автозапуска для '{app_name}' не найдена.")
+            winreg.CloseKey(key)
+
+        except ImportError:
+            print("Модуль 'winreg' не найден. Автозапуск доступен только для Windows.")
+            # QMessageBox.warning(self, "Ошибка автозапуска", "Автозапуск доступен только для Windows.")
         except Exception as e:
-            return False, f"Ошибка настройки автозапуска: {str(e)}"
+            print(f"Ошибка при настройке автозапуска: {e}")
+            # QMessageBox.warning(self, "Ошибка автозапуска", f"Не удалось настроить автозапуск: {e}")
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)

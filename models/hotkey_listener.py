@@ -22,7 +22,7 @@ class HotkeyListener(QThread):
                 self.hotkey_pressed.emit()
 
         try:
-            keyboard.add_hotkey(self.hotkey_str, on_hotkey, suppress=False)
+            keyboard.add_hotkey(self.hotkey_str, on_hotkey, suppress=True)
             # Держим поток активным, ожидая события
             while self.running:
                 time.sleep(0.1) # Пауза, чтобы не загружать процессор
