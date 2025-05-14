@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="a" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" width="8" height="9.5" viewBox="0 0 8 9.5">
+  <defs>
+    <style>
+      .b {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <path class="b" d="M1,3.5h-.5v.02h0v.02h0v.02h0v.05h0v.02h0v.37h0v.06h0v.02h0v.04h0v.06h0v.02h0v.05h0v.07h0v.02h0v.05h0v.07h0v.02h0v.05h0v.07h0v.02h0v2.91h1v-2.83h0v-.08h0v-.02h0v-.02h0v-.04h0v-.07h0v-.02h0v-.02h0v-.03h0v-.07h0v-.02h0v-.02h0v-.03h0v-.06h0v-.02h0v-.02h0v-.03h0v-.05h0v-.02h0v-.02h0v-.03h0v-.38h0v-.02h0v-.02h0v-.02h0v-.05h-.5v-.02ZM1,7.5h-.5c0,.58.14,1.1.52,1.48.38.38.9.52,1.48.52v-1c-.42,0-.65-.11-.77-.23s-.23-.35-.23-.77c0,0-.5,0-.5,0ZM2.5,9v.5h3v-1h-3v.5ZM5.5,9v.5c.58,0,1.1-.14,1.48-.52s.52-.9.52-1.48h-1c0,.42-.11.65-.23.77s-.35.23-.77.23v.5ZM7,7.5h.5v-2.38h0v-.02h0v-.02h0v-.02h0v-.02h0v-.02h0v-.02h0v-.02h0v-1.28h0v-.04h0v-.02h0v-.11h0v-.02h0v-.02h-1v.02h0v.02h0v.1h0v.02h0v.03h0v.02h0v.02h0v.02h0v.02h0v.02h0v1.04h0v.02h0v.02h0v.02h0v.02h0v.02h0v.02h0v.02h0v.02h0v.02h0v.06h0v.02h0v.02h0v.02h0v2.4h.5v-.02ZM0,2v.5h8v-1H0v.5ZM3,.5v.5h2.5V0h-2.5v.5Z"/>
+</svg>
