@@ -1,6 +1,6 @@
 # Text Rotator
 
-![Version](https://img.shields.io/badge/version-1.0.1-blue)
+![Version](https://img.shields.io/badge/version-1.0.4-blue)
 
 **Text Rotator** — удобный инструмент для быстрой вставки часто используемых текстов. Программа работает в фоновом режиме и позволяет мгновенно получить доступ к нужным текстовым фрагментам по горячим клавишам.
 
